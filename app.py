@@ -1,22 +1,23 @@
 import streamlit as st
-import google.generativeai as genai
-from PIL import Image
-import io
+from google import genai
 
-st.set_page_config(page_title="Prompt Studio & Pose Generator", layout="wide")
-st.title("🎨 Prompt Studio & Générateur de Poses")
-st.write("Téléversez une image pour obtenir son prompt précis, puis génerez 6 variantes de poses.")
+st.title("🔧 Diagnostic de la Clé API")
 
-with st.sidebar:
-    st.header("⚙️ Configuration")
-    api_key = st.text_input("Entrez votre clé API Gemini :", type="password")
-
-if not api_key:
-    st.warning("⚠️ Veuillez entrer votre clé API Gemini dans la barre latérale pour commencer.")
-    st.stop()
-
-# Configuration de la clé
-genai.configure(api_key=api_key)
+# 1. Est-ce que Streamlit voit le secret ?
+if "GOOGLE_API_KEY" not in st.secrets:
+    st.error("❌ Streamlit ne trouve AUCUN secret nommé GOOGLE_API_KEY.")
+else:
+    ma_cle = st.secrets["GOOGLE_API_KEY"]
+    st.success("✅ Streamlit trouve bien le secret.")
+    
+    # 2. Analyse visuelle de la clé (sécurisée)
+    st.write(f"Longueur de votre clé : {len(ma_cle)} caractères")
+    st.write(f"Elle commence par : `{ma_cle[:6]}`")
+    st.write(f"Elle se termine par : `{ma_cle[-4:]}`")
+    
+    # 3. Test de validation en direct
+    if not ma_cle.startswith("AIzaSy"):
+        st.error("❌ Erreur critique : Une clé Gemini valide DOIT commencer par 'AIzaSy'.")
 
 st.header("1. Analyse de l'Image source")
 uploaded_file = st.file_uploader("Choisissez une image...", type=["jpg", "jpeg", "png"])
