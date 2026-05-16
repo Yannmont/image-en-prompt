@@ -17,7 +17,6 @@ if "GOOGLE_API_KEY" not in st.secrets:
 # Initialisation du client officiel Google GenAI
 client = genai.Client(api_key=st.secrets["GOOGLE_API_KEY"])
 MODEL_NAME = "gemini-3.1-flash-image-preview"
-
 # Création des onglets
 tab1, tab2 = st.tabs(["✨ Générer une image", "🛠️ Modifier une image"])
 
