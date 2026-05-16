@@ -1,94 +1,104 @@
 import streamlit as st
 from google import genai
+from google.genai import types
+from PIL import Image  # <-- Cette ligne cruciale manquait et causait le crash !
+import io
 
-st.title("🔧 Diagnostic de la Clé API")
+# Configuration de l'interface Streamlit
+st.set_page_config(page_title="Studio Image - Banana API", page_icon="🍌", layout="centered")
+st.title("🍌 Banana Image Studio")
+st.write("Générez et modifiez vos images nativement avec l'API Gemini")
 
-# 1. Est-ce que Streamlit voit le secret ?
+# Vérification de la clé API dans les Secrets
 if "GOOGLE_API_KEY" not in st.secrets:
-    st.error("❌ Streamlit ne trouve AUCUN secret nommé GOOGLE_API_KEY.")
-else:
-    ma_cle = st.secrets["GOOGLE_API_KEY"]
-    st.success("✅ Streamlit trouve bien le secret.")
-    
-    # 2. Analyse visuelle de la clé (sécurisée)
-    st.write(f"Longueur de votre clé : {len(ma_cle)} caractères")
-    st.write(f"Elle commence par : `{ma_cle[:6]}`")
-    st.write(f"Elle se termine par : `{ma_cle[-4:]}`")
-    
-    # 3. Test de validation en direct
-    if not ma_cle.startswith("AIzaSy"):
-        st.error("❌ Erreur critique : Une clé Gemini valide DOIT commencer par 'AIzaSy'.")
+    st.error("⚠️ La clé GOOGLE_API_KEY n'est pas configurée dans les Secrets de Streamlit.")
+    st.stop()
 
-st.header("1. Analyse de l'Image source")
-uploaded_file = st.file_uploader("Choisissez une image...", type=["jpg", "jpeg", "png"])
+# Initialisation du client officiel Google GenAI
+client = genai.Client(api_key=st.secrets["GOOGLE_API_KEY"])
+MODEL_NAME = "gemini-3.1-flash-image-preview"
 
-if 'generated_prompt' not in st.session_state:
-    st.session_state.generated_prompt = ""
+# Création des onglets
+tab1, tab2 = st.tabs(["✨ Générer une image", "🛠️ Modifier une image"])
 
-if uploaded_file is not None:
-    image = Image.open(uploaded_file)
+# --- ONGLET 1 : GÉNÉRATION TEXT-TO-IMAGE ---
+with tab1:
+    st.subheader("Créer un visuel à partir d'un texte")
+    prompt_gen = st.text_area(
+        "Décrivez l'image que vous souhaitez créer :", 
+        placeholder="Un astronaute chevauchant un cheval sur Mars...",
+        key="prompt_gen"
+    )
     
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        st.image(image, caption="Image source", use_container_width=True)
+    ratio = st.selectbox(
+        "Format de l'image :",
+        options=["16:9", "1:1", "4:3", "9:16"],
+        index=1
+    )
     
-    with col2:
-        st.subheader("📝 Prompt Précis Généré")
-        if st.button("Analyser l'image"):
-            with st.spinner("Analyse en cours par Gemini..."):
+    if st.button("Créer le visuel", type="primary", key="btn_gen"):
+        if not prompt_gen.strip():
+            st.warning("Veuillez écrire une description.")
+        else:
+            with st.spinner("Génération en cours..."):
                 try:
-                    # Utilisation du modèle Flash pour l'analyse
-                    model = genai.GenerativeModel('gemini-1.5-flash')
-                    prompt_instruction = (
-                        "Analyze this image in detail. Write an ultra-precise image generation prompt "
-                        "in English. Include artistic style, subject details, colors, lighting, and atmosphere. "
-                        "Provide ONLY the prompt text, nothing else."
+                    response = client.models.generate_content(
+                        model=MODEL_NAME,
+                        contents=prompt_gen,
+                        config=types.GenerateContentConfig(
+                            response_modalities=["TEXT", "IMAGE"],
+                            image_config=types.ImageConfig(aspect_ratio=ratio, image_size="1K"),
+                        )
                     )
-                    response = model.generate_content([prompt_instruction, image])
-                    st.session_state.generated_prompt = response.text
+                    
+                    image_affichee = False
+                    for part in response.parts:
+                        if image_data := part.as_image():
+                            st.image(image_data, caption="Résultat de la génération", use_container_width=True)
+                            image_affichee = True
+                    
+                    if not image_affichee:
+                        st.error("Le modèle n'a pas renvoyé d'image.")
                 except Exception as e:
-                    st.error(f"Erreur lors de l'analyse : {e}")
+                    st.error(f"Erreur API : {e}")
 
-final_prompt = st.text_area("Modifier le prompt de base si nécessaire :", value=st.session_state.generated_prompt, height=150)
-
-if final_prompt:
-    st.write("---")
-    st.header("2. Génération des 6 Variantes de Poses")
+# --- ONGLET 2 : MODIFICATION IMAGE-TO-IMAGE ---
+with tab2:
+    st.subheader("Modifier une image existante")
+    uploaded_file = st.file_uploader("Choisissez une image source...", type=["png", "jpg", "jpeg"])
     
-    poses = [
-        "standing forward facing, full body portrait",
-        "side profile view, dynamic posture",
-        "action pose, running or jumping, mid-motion",
-        "three-quarter view, sitting down thoughtfully",
-        "dramatic hero shot, low angle looking up",
-        "close-up portrait focusing on facial expression and upper body"
-    ]
-    
-    if st.button("🚀 Générer les 6 variantes de pose"):
-        st.write("Génération des images en cours...")
-        cols = st.columns(3)
+    if uploaded_file is not None:
+        input_image = Image.open(uploaded_file)
+        st.image(input_image, caption="Image source", width=300)
         
-        # Changement ici : On utilise le modèle d'image natif de Gemini
-        img_model = genai.GenerativeModel(
-            model_name='gemini-2.5-flash-image',
-            generation_config={"response_modalities": ["IMAGE"]}
+        prompt_edit = st.text_area(
+            "Indiquez la modification à faire :",
+            placeholder="Ajoute des lunettes de soleil / Change le fond pour une plage...",
+            key="prompt_edit"
         )
         
-        for i, pose in enumerate(poses):
-            complete_prompt = f"Generate an image based on this description: {final_prompt}, {pose}, consistent character, high quality."
-            with cols[i % 3]:
-                st.subheader(f"Pose {i+1}")
-                st.caption(f"Pose : {pose}")
-                with st.spinner("Génération..."):
+        if st.button("Appliquer la modification", type="primary", key="btn_edit"):
+            if not prompt_edit.strip():
+                st.warning("Veuillez donner une instruction.")
+            else:
+                with st.spinner("Modification en cours..."):
                     try:
-                        # Demande de génération d'image
-                        response = img_model.generate_content(complete_prompt)
+                        response = client.models.generate_content(
+                            model=MODEL_NAME,
+                            contents=[
+                                f"Modifie cette image selon l'instruction suivante : {prompt_edit}",
+                                input_image
+                            ],
+                            config=types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"])
+                        )
                         
-                        # Extraction et affichage de l'image reçue
-                        for part in response.candidates[0].content.parts:
-                            if hasattr(part, 'inline_data') and part.inline_data:
-                                img_bytes = io.BytesIO(part.inline_data.data)
-                                img_to_show = Image.open(img_bytes)
-                                st.image(img_to_show, use_container_width=True)
+                        image_affichee = False
+                        for part in response.parts:
+                            if image_data := part.as_image():
+                                st.image(image_data, caption="Image modifiée", use_container_width=True)
+                                image_affichee = True
+                        
+                        if not image_affichee:
+                            st.error("Le modèle n'a pas pu appliquer la modification.")
                     except Exception as e:
-                        st.error(f"Erreur de génération : {e}")
+                        st.error(f"Erreur API : {e}")
